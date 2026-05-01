@@ -16,7 +16,8 @@ enum AIState {
 	ATTACK,
 	LUNGE,
 	PARRY,
-	FEINT
+	FEINT,
+	BEAT_ATTACK
 }
 
 var ai_state: AIState = AIState.IDLE
@@ -87,7 +88,12 @@ func _execute_state(delta: float) -> void:
 			if state_timer <= 0:
 				var dist = _get_distance()
 				if dist <= preferred_distance:
-					ai_state = AIState.EN_GARDE
+					if randf() < aggression_level * 0.5 and own_fencer.can_act:
+						ai_state = AIState.LUNGE
+						state_timer = 0.6
+						_own_start_compound_lunge("advance")
+					else:
+						ai_state = AIState.EN_GARDE
 				else:
 					state_timer = 0.1
 
@@ -135,6 +141,11 @@ func _execute_state(delta: float) -> void:
 					ai_state = AIState.EN_GARDE
 					_own_enter_engarde()
 
+		AIState.BEAT_ATTACK:
+			if state_timer <= 0:
+				ai_state = AIState.WAIT
+				state_timer = randf_range(0.2, 0.4)
+
 func _make_decision() -> void:
 	if not own_fencer or not own_fencer.can_act:
 		return
@@ -169,11 +180,16 @@ func _make_decision() -> void:
 				ai_state = AIState.EN_GARDE
 
 func _do_attack() -> void:
+	var dist = _get_distance()
 	var r = randf()
 	if r < 0.15:
 		ai_state = AIState.FEINT
 		state_timer = 0.25
 		_own_start_attack()
+	elif r < 0.3 and dist < 110:
+		ai_state = AIState.BEAT_ATTACK
+		state_timer = 0.2
+		_own_start_beat_attack()
 	elif r < 0.55:
 		ai_state = AIState.LUNGE
 		state_timer = 0.6
@@ -230,6 +246,14 @@ func _own_start_lunge() -> void:
 func _own_start_parry() -> void:
 	if own_fencer:
 		own_fencer._start_parry()
+
+func _own_start_beat_attack() -> void:
+	if own_fencer:
+		own_fencer._start_beat_attack()
+
+func _own_start_compound_lunge(type: String) -> void:
+	if own_fencer:
+		own_fencer._start_compound_lunge(type)
 
 func reset() -> void:
 	ai_state = AIState.IDLE

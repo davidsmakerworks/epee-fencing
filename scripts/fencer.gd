@@ -15,7 +15,14 @@ enum FencerState {
 	LUNGE,
 	PARRY,
 	RECOVER,
-	HIT
+	HIT,
+	BEAT_ATTACK
+}
+
+enum AttackLine {
+	HIGH,
+	MID,
+	LOW,
 }
 
 # Movement
@@ -30,6 +37,7 @@ enum FencerState {
 @export var attack_range: float = 140.0
 @export var parry_duration: float = 0.3
 @export var parry_window: float = 0.12
+@export var beat_attack_duration: float = 0.12
 
 # Identity
 @export var fencer_name: String = "Fencer"
@@ -54,6 +62,16 @@ var body_sway: float = 0.0
 var arm_extend: float = 0.0
 var target_arm_extend: float = 0.0
 var attack_hitbox_active: bool = false
+var current_attack_line: AttackLine = AttackLine.MID
+var is_beat_attack: bool = false
+var is_compound_lunge: bool = false
+var compound_lunge_type: String = ""
+var blade_length_override: float = -1.0
+
+# Sprite sheet layout
+const FRAME_W: int = 160
+const FRAME_H: int = 160
+const NUM_STATES: int = 10
 
 # Dimensions
 const FENCER_HEIGHT: float = 100.0
@@ -64,8 +82,33 @@ const BLADE_LENGTH: float = 90.0
 var _hitbox_rect: Rect2 = Rect2()
 var _attack_rect: Rect2 = Rect2()
 
+var sprite: Sprite2D = null
+
+# Position offset so sprite body aligns with procedural drawing origin
+const SPRITE_OFFSET = Vector2(-80, -70)
+
 func _ready() -> void:
+	_create_or_configure_sprite()
 	_update_hitboxes()
+
+func _create_or_configure_sprite() -> void:
+	if not has_node("Sprite2D"):
+		var s = Sprite2D.new()
+		s.name = "Sprite2D"
+		add_child(s)
+		sprite = s
+	else:
+		sprite = $Sprite2D
+
+	var tex = load("res://assets/sprites/fencer_sheet.png")
+	if tex:
+		sprite.texture = tex
+		sprite.region_enabled = true
+		sprite.position = SPRITE_OFFSET
+		sprite.centered = false
+		_update_sprite()
+	else:
+		push_warning("Sprite sheet not found at res://assets/sprites/fencer_sheet.png — falling back to procedural drawing")
 
 func _physics_process(delta: float) -> void:
 	if GameManager.current_state != GameManager.GameState.FOUGHT:
@@ -96,10 +139,69 @@ func _physics_process(delta: float) -> void:
 			_recover_update(delta)
 		FencerState.HIT:
 			_hit_update(delta)
+		FencerState.BEAT_ATTACK:
+			_beat_attack_update(delta)
 
+	_update_attack_line()
 	_update_hitboxes()
+	_update_sprite()
+
+	# Flash effect (white modulate on sprite)
+	if sprite:
+		if flash_timer > 0:
+			var intensity = 1.0 + sin(flash_timer * 40) * 0.5
+			sprite.modulate = Color(intensity, intensity, intensity)
+		else:
+			sprite.modulate = Color(1, 1, 1)
+
+func _update_sprite() -> void:
+	if not sprite:
+		return
+	var state_idx := 0
+	match state:
+		FencerState.IDLE:
+			state_idx = 0
+		FencerState.EN_GARDE:
+			state_idx = 1
+		FencerState.ADVANCE:
+			state_idx = 2
+		FencerState.RETREAT:
+			state_idx = 3
+		FencerState.ATTACK:
+			state_idx = 4
+		FencerState.LUNGE:
+			state_idx = 5
+		FencerState.PARRY:
+			state_idx = 6
+		FencerState.RECOVER:
+			state_idx = 7
+		FencerState.HIT:
+			state_idx = 8
+		FencerState.BEAT_ATTACK:
+			state_idx = 9
+
+	var team_idx := 0
+	if team_color == Color(0.9, 0.2, 0.2, 1):
+		team_idx = 1
+
+	sprite.region_rect = Rect2(state_idx * FRAME_W, team_idx * FRAME_H, FRAME_W, FRAME_H)
+
+	# Flip without offsetting the visual position.
+	# With centered=false, scale.x=-1 pivots around the sprite's position,
+	# so the fencer would appear shifted left by one frame width.
+	# We correct by shifting the position right by that amount.
+	if facing == 1:
+		sprite.scale.x = 1
+		sprite.position = SPRITE_OFFSET
+	else:
+		sprite.scale.x = -1
+		sprite.position = SPRITE_OFFSET + Vector2(FRAME_W, 0)
 
 func _draw() -> void:
+	# Skip procedural drawing when sprite sheet is active
+	if sprite and sprite.texture:
+		return
+
 	var base_y = 0.0
 	var sway_x = body_sway * 0.5
 	var f = float(facing)
@@ -202,9 +304,7 @@ func _idle_update(delta: float) -> void:
 	velocity.x = 0
 
 	if is_player:
-		if Input.is_action_just_pressed("fencer1_prepare"):
-			enter_en_garde()
-		elif Input.is_action_pressed("fencer1_move_forward"):
+		if Input.is_action_pressed("fencer1_move_forward"):
 			enter_en_garde()
 		elif Input.is_action_pressed("fencer1_move_backward"):
 			enter_en_garde()
@@ -215,7 +315,9 @@ func _engarde_update(delta: float) -> void:
 	velocity.x = 0
 
 	if is_player:
-		if Input.is_action_just_pressed("fencer1_attack"):
+		if Input.is_action_just_pressed("fencer1_beat_attack"):
+			_start_beat_attack()
+		elif Input.is_action_just_pressed("fencer1_attack"):
 			_start_attack()
 		elif Input.is_action_just_pressed("fencer1_lunge"):
 			_start_lunge()
@@ -232,6 +334,10 @@ func _advance_update(delta: float) -> void:
 	target_arm_extend = 0.4
 	move_and_slide()
 
+	if is_player and Input.is_action_just_pressed("fencer1_lunge") and can_act:
+		_start_compound_lunge("advance")
+		return
+
 	if state_timer <= 0:
 		if is_player and Input.is_action_pressed("fencer1_move_forward"):
 			state_timer = 0.1
@@ -244,6 +350,10 @@ func _retreat_update(delta: float) -> void:
 	target_blade_angle = -35.0
 	target_arm_extend = 0.3
 	move_and_slide()
+
+	if is_player and Input.is_action_just_pressed("fencer1_lunge") and can_act:
+		_start_compound_lunge("retreat")
+		return
 
 	if state_timer <= 0:
 		if is_player and Input.is_action_pressed("fencer1_move_backward"):
@@ -274,13 +384,20 @@ func _attack_update(delta: float) -> void:
 func _lunge_update(delta: float) -> void:
 	lunge_progress += delta * 3.5
 
+	var speed_mult = 1.0
+	if is_compound_lunge:
+		if compound_lunge_type == "advance":
+			speed_mult = 1.25
+		elif compound_lunge_type == "retreat":
+			speed_mult = 0.85
+
 	if lunge_progress < 0.3:
-		velocity.x = lunge_speed * facing
+		velocity.x = lunge_speed * speed_mult * facing
 	elif lunge_progress < 0.7:
-		velocity.x = lunge_speed * 0.6 * facing
+		velocity.x = lunge_speed * 0.6 * speed_mult * facing
 		attack_hitbox_active = true
 	else:
-		velocity.x = lunge_speed * 0.15 * facing
+		velocity.x = lunge_speed * 0.15 * speed_mult * facing
 		if lunge_progress >= 0.8:
 			attack_hitbox_active = false
 
@@ -293,6 +410,8 @@ func _lunge_update(delta: float) -> void:
 		state_timer = recovery_time * 1.5
 		lunge_progress = 0.0
 		attack_hitbox_active = false
+		is_compound_lunge = false
+		compound_lunge_type = ""
 
 func _parry_update(delta: float) -> void:
 	velocity.x = 0
@@ -311,11 +430,35 @@ func _parry_update(delta: float) -> void:
 		in_parry_window = false
 		can_act = true
 
+func _beat_attack_update(delta: float) -> void:
+	if state_timer > beat_attack_duration * 0.5:
+		velocity.x = move_speed * 0.5 * facing
+		target_blade_angle = -15.0
+		target_arm_extend = 0.7
+		attack_hitbox_active = true
+		is_beat_attack = true
+	else:
+		velocity.x = move_speed * 0.2 * facing
+		target_blade_angle = -10.0
+		target_arm_extend = 0.8
+		attack_hitbox_active = false
+
+	move_and_slide()
+
+	if state_timer <= 0:
+		state = FencerState.RECOVER
+		state_timer = recovery_time * 0.7
+		attack_hitbox_active = false
+		is_beat_attack = false
+		blade_length_override = -1.0
+
 func _recover_update(delta: float) -> void:
 	velocity.x = 0
 	target_blade_angle = -25.0
 	target_arm_extend = 0.5
 	attack_hitbox_active = false
+	is_beat_attack = false
+	blade_length_override = -1.0
 
 	if state_timer <= 0:
 		state = FencerState.EN_GARDE
@@ -331,12 +474,16 @@ func _hit_update(delta: float) -> void:
 		state = FencerState.EN_GARDE
 		hit_registered = false
 		can_act = true
+		is_beat_attack = false
+		blade_length_override = -1.0
 
 # Actions
 func enter_en_garde() -> void:
 	state = FencerState.EN_GARDE
 	is_prepared = true
 	state_timer = 0.1
+	is_beat_attack = false
+	blade_length_override = -1.0
 
 func _start_advance() -> void:
 	if state != FencerState.EN_GARDE and state != FencerState.ADVANCE and state != FencerState.IDLE:
@@ -362,6 +509,8 @@ func _start_attack() -> void:
 	is_attacking = true
 	hit_registered = false
 	can_act = false
+	is_beat_attack = false
+	blade_length_override = -1.0
 
 func _start_lunge() -> void:
 	if not can_act:
@@ -371,6 +520,26 @@ func _start_lunge() -> void:
 	is_attacking = true
 	hit_registered = false
 	can_act = false
+	is_beat_attack = false
+	blade_length_override = -1.0
+
+func _start_compound_lunge(lunge_type: String) -> void:
+	if not can_act:
+		return
+	is_compound_lunge = true
+	compound_lunge_type = lunge_type
+	_start_lunge()
+
+func _start_beat_attack() -> void:
+	if not can_act:
+		return
+	state = FencerState.BEAT_ATTACK
+	state_timer = beat_attack_duration
+	is_attacking = true
+	hit_registered = false
+	can_act = false
+	is_beat_attack = true
+	blade_length_override = 60.0
 
 func _start_parry() -> void:
 	if not can_act:
@@ -380,6 +549,8 @@ func _start_parry() -> void:
 	is_parrying = true
 	in_parry_window = false
 	can_act = false
+	is_beat_attack = false
+	blade_length_override = -1.0
 
 func take_hit() -> void:
 	if in_parry_window:
@@ -395,7 +566,8 @@ func take_hit() -> void:
 
 func _update_hitboxes() -> void:
 	var extend_offset = arm_extend * 30.0
-	var blade_reach = 12 + 18 + extend_offset + BLADE_LENGTH
+	var blade_len = BLADE_LENGTH if blade_length_override < 0 else blade_length_override
+	var blade_reach = 12 + 18 + extend_offset + blade_len
 	var attack_w = blade_reach
 
 	if facing > 0:
@@ -427,7 +599,7 @@ func get_hitbox_rect() -> Rect2:
 	return _hitbox_rect
 
 func is_in_attack_state() -> bool:
-	return state == FencerState.ATTACK or state == FencerState.LUNGE
+	return state == FencerState.ATTACK or state == FencerState.LUNGE or state == FencerState.BEAT_ATTACK
 
 func reset_for_bout() -> void:
 	state = FencerState.EN_GARDE
@@ -441,4 +613,25 @@ func reset_for_bout() -> void:
 	blade_angle = 0.0
 	target_blade_angle = -30.0 if is_player else 5.0
 	attack_hitbox_active = false
+	current_attack_line = AttackLine.MID
+	is_beat_attack = false
+	is_compound_lunge = false
+	compound_lunge_type = ""
+	blade_length_override = -1.0
 	velocity = Vector2.ZERO
+
+func get_attack_line_name() -> String:
+	match current_attack_line:
+		AttackLine.HIGH: return "High"
+		AttackLine.MID: return "Mid"
+		AttackLine.LOW: return "Low"
+	return "Mid"
+
+func _update_attack_line() -> void:
+	# Blade angle: negative = angled upward (HIGH), near zero = MID, positive = LOW
+	if blade_angle < -10.0:
+		current_attack_line = AttackLine.HIGH
+	elif blade_angle > 10.0:
+		current_attack_line = AttackLine.LOW
+	else:
+		current_attack_line = AttackLine.MID

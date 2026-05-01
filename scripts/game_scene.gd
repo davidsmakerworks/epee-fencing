@@ -12,9 +12,14 @@ const PISTE_RIGHT: float = 1160.0
 const PISTE_CENTER: float = 640.0
 const PISTE_Y: float = 480.0
 const START_DISTANCE: float = 200.0
+const LOCKOUT_DURATION: float = 0.08  # Slightly more forgiving than real 40ms
+const CORPS_DISTANCE: float = 28.0
 
-var last_p1_hit: bool = false
-var last_p2_hit: bool = false
+var lockout_timer: float = 0.0
+var pending_p1_hit: bool = false
+var pending_p2_hit: bool = false
+var pending_p1_line: String = "Mid"
+var pending_p2_line: String = "Mid"
 
 func _ready() -> void:
 	_setup_fencers()
@@ -72,49 +77,139 @@ func _connect_signals() -> void:
 
 func _process(delta: float) -> void:
 	if GameManager.current_state == GameManager.GameState.FOUGHT:
-		_check_hits()
+		_check_hits(delta)
+		if lockout_timer <= 0.0:
+			_check_rear_line()
+			_check_corps_a_corps()
 		_constrain_to_piste()
 
-func _check_hits() -> void:
+func _check_hits(delta: float) -> void:
 	if not player1 or not player2:
+		return
+
+	# If lockout is active, tick it down and check for second hit
+	if lockout_timer > 0.0:
+		lockout_timer -= delta
+		if lockout_timer <= 0.0:
+			_resolve_pending_hits()
+		else:
+			_check_second_hit()
 		return
 
 	var p1 = player1
 	var p2 = player2
 
-	var p1_hits = false
-	var p2_hits = false
+	# Detect potential hits first without applying take_hit,
+	# so that simultaneous hits on the same frame are both registered.
+	var p1_would_hit = false
+	var p2_would_hit = false
 
-	# Check if Player1's attack hits Player2
 	if p1.attack_hitbox_active and not p1.hit_registered:
 		var atk = p1.get_attack_rect()
 		var def_box = p2.get_hitbox_rect()
 		if atk.intersects(def_box):
-			p2.take_hit()
-			if not p2.in_parry_window:
-				p1.hit_registered = true
-				p1_hits = true
-				_spawn_hit_effect(p2.position + Vector2(-10 * p2.facing, -30), false)
+			if not p2.in_parry_window or p1.is_beat_attack:
+				p1_would_hit = true
 
-	# Check if Player2's attack hits Player1
 	if p2.attack_hitbox_active and not p2.hit_registered:
 		var atk = p2.get_attack_rect()
 		var def_box = p1.get_hitbox_rect()
 		if atk.intersects(def_box):
-			p1.take_hit()
-			if not p1.in_parry_window:
-				p2.hit_registered = true
-				p2_hits = true
-				_spawn_hit_effect(p1.position + Vector2(-10 * p1.facing, -30), false)
+			if not p1.in_parry_window or p2.is_beat_attack:
+				p2_would_hit = true
 
-	# Epee: simultaneous hits both score
-	if p1_hits and p2_hits:
-		GameManager.record_double_point()
-		_spawn_hit_effect(Vector2((p1.position.x + p2.position.x) * 0.5, PISTE_Y - 30), true)
-	elif p1_hits:
-		GameManager.record_point("player1")
-	elif p2_hits:
-		GameManager.record_point("player2")
+	# Apply hits
+	var p1_hit_now = false
+	var p2_hit_now = false
+
+	if p1_would_hit:
+		p2.take_hit()
+		p1.hit_registered = true
+		p1_hit_now = true
+		pending_p1_line = p1.get_attack_line_name()
+		_spawn_hit_effect(p2.position + Vector2(-10 * p2.facing, -30), false)
+
+	if p2_would_hit:
+		p1.take_hit()
+		p2.hit_registered = true
+		p2_hit_now = true
+		pending_p2_line = p2.get_attack_line_name()
+		_spawn_hit_effect(p1.position + Vector2(-10 * p1.facing, -30), false)
+
+	if p1_hit_now or p2_hit_now:
+		pending_p1_hit = p1_hit_now
+		pending_p2_hit = p2_hit_now
+		lockout_timer = LOCKOUT_DURATION
+
+func _check_second_hit() -> void:
+	if not player1 or not player2:
+		return
+	var p1 = player1
+	var p2 = player2
+
+	var p1_would_hit = false
+	var p2_would_hit = false
+
+	if not pending_p1_hit and p1.attack_hitbox_active and not p1.hit_registered:
+		var atk = p1.get_attack_rect()
+		var def_box = p2.get_hitbox_rect()
+		if atk.intersects(def_box):
+			if not p2.in_parry_window or p1.is_beat_attack:
+				p1_would_hit = true
+
+	if not pending_p2_hit and p2.attack_hitbox_active and not p2.hit_registered:
+		var atk = p2.get_attack_rect()
+		var def_box = p1.get_hitbox_rect()
+		if atk.intersects(def_box):
+			if not p1.in_parry_window or p2.is_beat_attack:
+				p2_would_hit = true
+
+	if p1_would_hit:
+		p2.take_hit()
+		p1.hit_registered = true
+		pending_p1_hit = true
+		pending_p1_line = p1.get_attack_line_name()
+		_spawn_hit_effect(p2.position + Vector2(-10 * p2.facing, -30), false)
+
+	if p2_would_hit:
+		p1.take_hit()
+		p2.hit_registered = true
+		pending_p2_hit = true
+		pending_p2_line = p2.get_attack_line_name()
+		_spawn_hit_effect(p1.position + Vector2(-10 * p1.facing, -30), false)
+
+func _resolve_pending_hits() -> void:
+	if pending_p1_hit and pending_p2_hit:
+		GameManager.record_double_point(pending_p1_line, pending_p2_line)
+		_spawn_hit_effect(Vector2((player1.position.x + player2.position.x) * 0.5, PISTE_Y - 30), true)
+	elif pending_p1_hit:
+		GameManager.record_point("player1", pending_p1_line)
+	elif pending_p2_hit:
+		GameManager.record_point("player2", pending_p2_line)
+
+	pending_p1_hit = false
+	pending_p2_hit = false
+
+func _check_rear_line() -> void:
+	if not player1 or not player2:
+		return
+
+	# Player1 stepping off left (their rear)
+	if player1.position.x <= PISTE_LEFT:
+		GameManager.record_point("player2", "Rear Line")
+		_spawn_hit_effect(Vector2(PISTE_LEFT, PISTE_Y - 30), false)
+
+	# Player2 stepping off right (their rear)
+	if player2.position.x >= PISTE_RIGHT:
+		GameManager.record_point("player1", "Rear Line")
+		_spawn_hit_effect(Vector2(PISTE_RIGHT, PISTE_Y - 30), false)
+
+func _check_corps_a_corps() -> void:
+	if not player1 or not player2:
+		return
+	var dist = abs(player1.position.x - player2.position.x)
+	if dist < CORPS_DISTANCE:
+		GameManager.halt_bout("Corps-a-corps")
 
 func _spawn_hit_effect(position: Vector2, is_double: bool) -> void:
 	var effect = hit_effects
@@ -123,8 +218,10 @@ func _spawn_hit_effect(position: Vector2, is_double: bool) -> void:
 			effect.spawn_hit_effect(position, is_double)
 
 func _constrain_to_piste() -> void:
-	player1.position.x = clamp(player1.position.x, PISTE_LEFT + 30, PISTE_CENTER)
-	player2.position.x = clamp(player2.position.x, PISTE_CENTER, PISTE_RIGHT - 30)
+	# Allow fencers to move past center (corps-a-corps halts them),
+	# but keep them from running too far off-screen.
+	player1.position.x = clamp(player1.position.x, PISTE_LEFT - 120, 1320)
+	player2.position.x = clamp(player2.position.x, -40, PISTE_RIGHT + 120)
 
 func _on_bout_reset() -> void:
 	player1.position = Vector2(PISTE_CENTER - START_DISTANCE, PISTE_Y)

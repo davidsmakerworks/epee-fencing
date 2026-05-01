@@ -171,13 +171,14 @@ layout_mode = 2
 
 [node name="ControlsText" type="Label" parent="UI/ControlsPanel/VBox" unique_id=882653336]
 layout_mode = 2
-text = "X  —  Advance
-A  —  Retreat
-J  —  Attack (Thrust)
-K  —  Lunge
-L  —  Parry
+text = "A / D  —  Retreat / Advance
+Q  —  Attack (Thrust)
+W  —  Lunge
+E  —  Parry
+R  —  Beat Attack
 
-First to 5 touches wins!"
+First to 5 touches wins! (3:00)
+M  —  Toggle Format (Pool / DE)"
 horizontal_alignment = 1
 
 [node name="Spacer2" type="Control" parent="UI/ControlsPanel/VBox" unique_id=541133607]
