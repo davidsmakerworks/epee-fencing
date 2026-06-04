@@ -5,6 +5,7 @@ extends CharacterBody2D
 
 signal hit_dealt
 signal hit_taken
+signal parry_blocked(pos: Vector2)
 
 enum FencerState {
 	IDLE,
@@ -15,7 +16,8 @@ enum FencerState {
 	LUNGE,
 	PARRY,
 	RECOVER,
-	HIT
+	HIT,
+	FEINT
 }
 
 # Movement
@@ -54,6 +56,11 @@ var body_sway: float = 0.0
 var arm_extend: float = 0.0
 var target_arm_extend: float = 0.0
 var attack_hitbox_active: bool = false
+
+# Hit zones
+enum HitZone { HEAD, TORSO, ARM, LEG }
+var _hit_zones: Dictionary = {}
+var _last_hit_zone: HitZone = HitZone.TORSO
 
 # Dimensions
 const FENCER_HEIGHT: float = 100.0
@@ -96,6 +103,8 @@ func _physics_process(delta: float) -> void:
 			_recover_update(delta)
 		FencerState.HIT:
 			_hit_update(delta)
+		FencerState.FEINT:
+			_feint_update(delta)
 
 	_update_hitboxes()
 
@@ -192,6 +201,9 @@ func _draw() -> void:
 	if state == FencerState.PARRY and in_parry_window:
 		draw_arc(Vector2((blade_base_x + blade_end_x) * 0.5, blade_base_y - 20), 25, 0, TAU, 12, Color(0.3, 1.0, 0.3, 0.4), 2.0, true)
 
+	if state == FencerState.FEINT:
+		draw_arc(Vector2((blade_base_x + blade_end_x) * 0.5, blade_base_y - 20), 20, 0, TAU, 12, Color(1.0, 1.0, 0.3, 0.35), 2.0, true)
+
 	if state == FencerState.HIT:
 		draw_rect(Rect2(-BODY_WIDTH * 0.6 + sway_x, torso_y - 20, BODY_WIDTH * 1.2, torso_h + 25), Color(1, 0.3, 0.3, 0.3))
 
@@ -221,6 +233,8 @@ func _engarde_update(delta: float) -> void:
 			_start_lunge()
 		elif Input.is_action_just_pressed("fencer1_parry"):
 			_start_parry()
+		elif Input.is_action_just_pressed("fencer1_feint"):
+			_start_feint()
 		elif Input.is_action_pressed("fencer1_move_forward"):
 			_start_advance()
 		elif Input.is_action_pressed("fencer1_move_backward"):
@@ -381,8 +395,29 @@ func _start_parry() -> void:
 	in_parry_window = false
 	can_act = false
 
+func _start_feint() -> void:
+	if not can_act:
+		return
+	state = FencerState.FEINT
+	state_timer = 0.12
+	target_arm_extend = 0.7
+	target_blade_angle = -10.0
+	is_attacking = false
+	can_act = false
+
+func _feint_update(delta: float) -> void:
+	velocity.x = move_speed * 0.2 * facing
+	target_arm_extend = 0.7
+	target_blade_angle = -10.0
+	move_and_slide()
+	if state_timer <= 0:
+		state = FencerState.RECOVER
+		state_timer = recovery_time * 0.5
+
 func take_hit() -> void:
 	if in_parry_window:
+		var tip = _get_blade_tip()
+		emit_signal("parry_blocked", tip)
 		return
 	if state == FencerState.HIT or hit_registered:
 		return
@@ -413,6 +448,12 @@ func _update_hitboxes() -> void:
 			35.0
 		)
 
+	var boot_h = 18.0
+	var leg_h = 16.0
+	var torso_h = 34.0
+	var torso_y = FENCER_HEIGHT - boot_h - leg_h - torso_h - 5
+
+	# Overall hitbox (for corps-a-corps, etc.)
 	_hitbox_rect = Rect2(
 		position.x - BODY_WIDTH * 0.5,
 		position.y - 14,
@@ -420,14 +461,61 @@ func _update_hitboxes() -> void:
 		FENCER_HEIGHT + 20
 	)
 
+	# Segmented hit zones
+	var hw = BODY_WIDTH * 0.5
+	_hit_zones[HitZone.HEAD] = Rect2(
+		position.x - 10 + body_sway * 0.5,
+		position.y - 5,
+		20, 22
+	)
+	_hit_zones[HitZone.TORSO] = Rect2(
+		position.x - hw + body_sway,
+		position.y + torso_y,
+		BODY_WIDTH, torso_h
+	)
+	_hit_zones[HitZone.LEG] = Rect2(
+		position.x - 12,
+		position.y + torso_y + torso_h,
+		28, boot_h + leg_h
+	)
+	var arm_y = torso_y + 6
+	var arm_x = position.x + BODY_WIDTH * 0.3 * facing + body_sway
+	var arm_w = 30 + arm_extend * 30.0
+	if facing > 0:
+		_hit_zones[HitZone.ARM] = Rect2(arm_x, position.y + arm_y - 10, arm_w, 25)
+	else:
+		_hit_zones[HitZone.ARM] = Rect2(arm_x - arm_w, position.y + arm_y - 10, arm_w, 25)
+
 func get_attack_rect() -> Rect2:
 	return _attack_rect
 
 func get_hitbox_rect() -> Rect2:
 	return _hitbox_rect
 
+func get_hit_zone(atk_rect: Rect2) -> int:
+	for zone_key in _hit_zones:
+		var zr: Rect2 = _hit_zones[zone_key]
+		if zr.intersects(atk_rect):
+			_last_hit_zone = zone_key
+			return zone_key
+	_last_hit_zone = int(HitZone.TORSO)
+	return int(HitZone.TORSO)
+
+func get_last_hit_zone() -> int:
+	return _last_hit_zone
+
+func get_hit_zone_name(zone: int) -> String:
+	match zone:
+		HitZone.HEAD: return "Head"
+		HitZone.TORSO: return "Torso"
+		HitZone.LEG: return "Leg"
+		_: return "Body"
+
 func is_in_attack_state() -> bool:
 	return state == FencerState.ATTACK or state == FencerState.LUNGE
+
+func is_feinting() -> bool:
+	return state == FencerState.FEINT
 
 func reset_for_bout() -> void:
 	state = FencerState.EN_GARDE
@@ -442,3 +530,18 @@ func reset_for_bout() -> void:
 	target_blade_angle = -30.0 if is_player else 5.0
 	attack_hitbox_active = false
 	velocity = Vector2.ZERO
+
+func _get_blade_tip() -> Vector2:
+	var f = float(facing)
+	var sway_x = body_sway * 0.5
+	var blade_y_offset = -8.0 if is_player else 8.0
+	var front_arm_base_y = (FENCER_HEIGHT - 18 - 16 - 34 - 5) + 6 + blade_y_offset
+	var extend_px = arm_extend * 30.0
+	var shoulder_x = BODY_WIDTH * 0.3 * f + sway_x
+	var upper_end_x = shoulder_x + (8 + extend_px * 0.3) * f
+	var forearm_end_x = upper_end_x + (10 + extend_px * 0.7) * f
+	var glove_x = forearm_end_x
+	var blade_base_x = glove_x + 8 * f
+	var blade_end_x = blade_base_x + BLADE_LENGTH * f
+	var blade_end_y = front_arm_base_y + blade_angle * 0.5
+	return position + Vector2(blade_end_x, blade_end_y)

@@ -58,6 +58,10 @@ func _process(delta: float) -> void:
 			_queue_reaction(AIState.PARRY)
 			return
 
+	if _is_player_feinting() and not is_reacting and randf() < (1.0 - difficulty) * 0.6:
+		_queue_reaction(AIState.PARRY)
+		return
+
 	# Execute current state every frame
 	_execute_state(delta)
 
@@ -187,6 +191,11 @@ func _is_player_attacking() -> bool:
 	if not player_fencer:
 		return false
 	return player_fencer.is_in_attack_state()
+
+func _is_player_feinting() -> bool:
+	if not player_fencer:
+		return false
+	return player_fencer.has_method("is_feinting") and player_fencer.is_feinting()
 
 func _queue_reaction(action: AIState) -> void:
 	if is_reacting:

@@ -44,16 +44,16 @@ func _sample_blade_tip() -> void:
 		trail_points.remove_at(0)
 
 func _calculate_blade_tip() -> Vector2:
+	if target_fencer and target_fencer.has_method("_get_blade_tip"):
+		return target_fencer._get_blade_tip()
 	var fencer_pos = target_fencer.position
 	var extend = target_fencer.arm_extend
 	var blade_len = 90.0
 	var facing = target_fencer.facing
 	var blade_ang = target_fencer.blade_angle
-
 	var arm_offset = 26 + extend * 30.0
 	var tip_x = fencer_pos.x + (12 + arm_offset + blade_len) * facing
 	var tip_y = fencer_pos.y + 30 + blade_ang * 0.5
-
 	return Vector2(tip_x, tip_y)
 
 func _draw() -> void:

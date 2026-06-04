@@ -18,7 +18,7 @@ position = Vector2(640, 360)
 [node name="Player1" type="CharacterBody2D" parent="Fencers" unique_id=1646784129]
 position = Vector2(440, 480)
 script = ExtResource("2_fencer")
-fencer_name = "TALANT"
+fencer_name = "FENCER"
 
 [node name="BladeTrail" type="Node2D" parent="Fencers/Player1" unique_id=230480418]
 script = ExtResource("6_trail")
@@ -27,7 +27,7 @@ trail_color = Color(0.4, 0.6, 1, 0.5)
 [node name="Player2" type="CharacterBody2D" parent="Fencers" unique_id=1600740619]
 position = Vector2(840, 480)
 script = ExtResource("2_fencer")
-fencer_name = "OPONENT"
+fencer_name = "OPPONENT"
 is_player = false
 facing = -1
 team_color = Color(0.9, 0.2, 0.2, 1)
@@ -74,6 +74,11 @@ horizontal_alignment = 1
 layout_mode = 2
 size_flags_horizontal = 2
 text = "EPÉE"
+horizontal_alignment = 1
+
+[node name="ClockLabel" type="Label" parent="UI/HUD/HBox" unique_id=2098765431]
+layout_mode = 2
+text = ""
 horizontal_alignment = 1
 
 [node name="P2Score" type="Label" parent="UI/HUD/HBox" unique_id=654042390]
@@ -171,16 +176,45 @@ layout_mode = 2
 
 [node name="ControlsText" type="Label" parent="UI/ControlsPanel/VBox" unique_id=882653336]
 layout_mode = 2
-text = "X  —  Advance
-A  —  Retreat
-J  —  Attack (Thrust)
-K  —  Lunge
-L  —  Parry
+text = "X  -  Advance
+A  -  Retreat
+J  -  Attack (Thrust)
+K  -  Lunge
+L  -  Parry
+I  -  Feint
 
-First to 5 touches wins!"
+3 periods of 3 min. First to 15 wins!"
 horizontal_alignment = 1
 
 [node name="Spacer2" type="Control" parent="UI/ControlsPanel/VBox" unique_id=541133607]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+
+[node name="DifficultyLabel" type="Label" parent="UI/ControlsPanel/VBox" unique_id=1958726341]
+layout_mode = 2
+text = "DIFFICULTY"
+horizontal_alignment = 1
+
+[node name="DiffButtons" type="HBoxContainer" parent="UI/ControlsPanel/VBox" unique_id=873245901]
+layout_mode = 2
+alignment = 1
+
+[node name="EasyBtn" type="Button" parent="UI/ControlsPanel/VBox/DiffButtons" unique_id=2109876543]
+layout_mode = 2
+text = "Easy"
+size_flags_horizontal = 3
+
+[node name="MediumBtn" type="Button" parent="UI/ControlsPanel/VBox/DiffButtons" unique_id=2109876544]
+layout_mode = 2
+text = "Medium"
+size_flags_horizontal = 3
+
+[node name="HardBtn" type="Button" parent="UI/ControlsPanel/VBox/DiffButtons" unique_id=2109876545]
+layout_mode = 2
+text = "Hard"
+size_flags_horizontal = 3
+
+[node name="Spacer3" type="Control" parent="UI/ControlsPanel/VBox" unique_id=1619229662]
 custom_minimum_size = Vector2(0, 10)
 layout_mode = 2
 

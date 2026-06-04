@@ -5,13 +5,22 @@ extends Control
 @onready var p1_score: Label = $HUD/HBox/P1Score
 @onready var p2_score: Label = $HUD/HBox/P2Score
 @onready var state_label: Label = $HUD/HBox/StateLabel
+@onready var clock_label: Label = $HUD/HBox/ClockLabel
 @onready var message_label: Label = $MessageLabel
 @onready var victory_panel: Control = $VictoryPanel
 @onready var victory_text: Label = $VictoryPanel/VictoryText
 @onready var controls_panel: Control = $ControlsPanel
 @onready var restart_btn: Button = $RestartButton
+@onready var easy_btn: Button = $ControlsPanel/VBox/DiffButtons/EasyBtn
+@onready var medium_btn: Button = $ControlsPanel/VBox/DiffButtons/MediumBtn
+@onready var hard_btn: Button = $ControlsPanel/VBox/DiffButtons/HardBtn
+
+const DIFF_EASY: float = 0.4
+const DIFF_MEDIUM: float = 0.65
+const DIFF_HARD: float = 0.85
 
 var msg_timer: float = 0.0
+var selected_difficulty: float = DIFF_MEDIUM
 
 func _ready() -> void:
 	_init_ui()
@@ -29,6 +38,29 @@ func _init_ui() -> void:
 	GameManager.connect("match_ended", _on_match_ended)
 	GameManager.connect("bout_reset", _on_bout_reset)
 
+	easy_btn.pressed.connect(_on_easy_pressed)
+	medium_btn.pressed.connect(_on_medium_pressed)
+	hard_btn.pressed.connect(_on_hard_pressed)
+
+	_highlight_difficulty(selected_difficulty)
+
+func _highlight_difficulty(diff: float) -> void:
+	easy_btn.modulate = Color(1, 1, 1) if diff == DIFF_EASY else Color(0.6, 0.6, 0.6)
+	medium_btn.modulate = Color(1, 1, 1) if diff == DIFF_MEDIUM else Color(0.6, 0.6, 0.6)
+	hard_btn.modulate = Color(1, 1, 1) if diff == DIFF_HARD else Color(0.6, 0.6, 0.6)
+
+func _on_easy_pressed() -> void:
+	selected_difficulty = DIFF_EASY
+	_highlight_difficulty(DIFF_EASY)
+
+func _on_medium_pressed() -> void:
+	selected_difficulty = DIFF_MEDIUM
+	_highlight_difficulty(DIFF_MEDIUM)
+
+func _on_hard_pressed() -> void:
+	selected_difficulty = DIFF_HARD
+	_highlight_difficulty(DIFF_HARD)
+
 func _process(delta: float) -> void:
 	_update_hud(delta)
 
@@ -44,6 +76,9 @@ func _update_hud(delta: float) -> void:
 	var state_name = GameManager.get_state_name()
 	state_label.text = state_name
 
+	if GameManager.is_period_running or GameManager.current_state == GameManager.GameState.PRIORITY:
+		clock_label.text = GameManager.get_time_string()
+
 	match GameManager.current_state:
 		GameManager.GameState.FOUGHT:
 			state_label.add_theme_color_override("font_color", Color(0.2, 1.0, 0.3))
@@ -51,6 +86,11 @@ func _update_hud(delta: float) -> void:
 			state_label.add_theme_color_override("font_color", Color(1.0, 0.2, 0.2))
 		GameManager.GameState.ENDED:
 			state_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.2))
+		GameManager.GameState.PERIOD_BREAK:
+			state_label.add_theme_color_override("font_color", Color(0.5, 0.5, 1.0))
+			clock_label.text = ""
+		GameManager.GameState.PRIORITY:
+			state_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.0))
 		_:
 			state_label.add_theme_color_override("font_color", Color.WHITE)
 
@@ -62,9 +102,15 @@ func _on_point_scored(scorer: String, is_double: bool) -> void:
 	if is_double:
 		_show_msg("DOUBLE TOUCH!", 2.0)
 	elif scorer == "player1":
-		_show_msg("Touch! You score!", 1.8)
-	else:
-		_show_msg("Touch! Opponent scores!", 1.8)
+		_show_msg("Touch! " + GameManager.last_hit_zone + " hit!", 1.8)
+	elif scorer == "player2":
+		_show_msg("Touch! Opponent " + GameManager.last_hit_zone + "!", 1.8)
+	elif scorer == "side_p1" or scorer == "side_p2":
+		_show_msg("OUT OF BOUNDS!", 1.8)
+	elif scorer == "corps_p1" or scorer == "corps_p2":
+		_show_msg("CORPS A CORPS - HALT!", 1.8)
+	elif scorer == "passivity":
+		_show_msg("PASSIVITY - HALT!", 1.8)
 
 func _on_match_ended() -> void:
 	victory_panel.visible = true
