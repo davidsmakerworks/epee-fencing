@@ -91,6 +91,11 @@ func _execute_state(delta: float) -> void:
 			if state_timer <= 0:
 				var dist = _get_distance()
 				if dist <= preferred_distance:
+					if randf() < aggression_level * 0.6:
+						_do_attack()
+					else:
+						ai_state = AIState.EN_GARDE
+				elif dist <= preferred_distance * 1.5:
 					ai_state = AIState.EN_GARDE
 				else:
 					state_timer = 0.1
@@ -152,9 +157,9 @@ func _make_decision() -> void:
 				state_timer = 0.3
 				_own_advance()
 			elif dist < preferred_distance - 20:
-				if randf() < aggression_level * 0.7:
+				if randf() < aggression_level * 0.9:
 					_do_attack()
-				elif randf() < 0.3:
+				elif randf() < 0.2:
 					ai_state = AIState.RETREAT
 					state_timer = 0.3
 					_own_retreat()
@@ -162,7 +167,7 @@ func _make_decision() -> void:
 					ai_state = AIState.WAIT
 					state_timer = randf_range(0.1, 0.3)
 			else:
-				if randf() < aggression_level * 0.55:
+				if randf() < aggression_level * 0.75:
 					_do_attack()
 				else:
 					ai_state = AIState.WAIT

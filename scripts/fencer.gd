@@ -268,7 +268,7 @@ func _retreat_update(delta: float) -> void:
 
 func _attack_update(delta: float) -> void:
 	if state_timer > attack_duration * 0.4:
-		velocity.x = move_speed * 0.4 * facing
+		velocity.x = move_speed * 0.7 * facing
 		target_blade_angle = -5.0
 		target_arm_extend = 1.0
 		attack_hitbox_active = false
